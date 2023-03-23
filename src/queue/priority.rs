@@ -17,6 +17,7 @@ use std::{
 };
 
 use crossbeam_skiplist::SkipMap;
+use crossbeam_queue::SegQueue;
 use crossbeam_utils::atomic::AtomicCell;
 use prometheus::local::LocalIntCounter;
 use prometheus::IntCounter;
@@ -97,7 +98,7 @@ impl PriorityTaskManager {
 /// The global priority queue. We use a `SkipMap` as a priority queue,
 /// The key is the priority and value is the task.
 struct QueueCore<T> {
-    pq: SkipMap<MapKey, Slot<T>>,
+    pq: SegQueue<Slot<T>>,
     /// a global sequence generator to ensure all task keys are unique.
     sequence: AtomicU64,
 }
@@ -105,7 +106,7 @@ struct QueueCore<T> {
 impl<T> QueueCore<T> {
     fn new() -> Self {
         Self {
-            pq: SkipMap::new(),
+            pq: SegQueue::new(),
             sequence: AtomicU64::new(0),
         }
     }
@@ -117,7 +118,7 @@ impl<T> QueueCore<T> {
 
 impl<T: TaskCell + Send + 'static> QueueCore<T> {
     fn push(&self, msg: T, priority: u64) {
-        self.pq.insert(self.gen_key(priority), Slot::new(msg));
+        self.pq.push(Slot::new(msg));
     }
 
     pub fn pop(&self) -> Option<Pop<T>> {
@@ -134,8 +135,8 @@ impl<T: TaskCell + Send + 'static> QueueCore<T> {
         }
 
         self.pq
-            .pop_front()
-            .map(|e| into_pop(e.value().take().unwrap()))
+            .pop()
+            .map(|e| into_pop(e.take().unwrap()))
     }
 
     #[inline]
